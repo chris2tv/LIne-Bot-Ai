@@ -89,10 +89,15 @@ export async function askGemini(
   const started = Date.now();
   const elapsed = () => Date.now() - started;
   const contents = buildPrompt(faqCsv, question);
-  const baseConfig: GenerateContentConfig = {
+  // thinkingLevel is only accepted by explicit gemini-3.x model ids; aliases and
+  // other families get the model's own default instead.
+  const configFor = (m: string): GenerateContentConfig => ({
     temperature: 1.0, // Gemini 3.x default · do not lower
     maxOutputTokens: 1024, // thinking + answer share this budget · do not drop to 200
-  };
+    ...(m.startsWith("gemini-3")
+      ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+      : {}),
+  });
 
   let model = GEMINI_MODEL;
   try {
@@ -101,7 +106,7 @@ export async function askGemini(
       res = await attempt(
         model,
         contents,
-        { ...baseConfig, thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } },
+        configFor(model),
         GEMINI_PRIMARY_TIMEOUT_MS,
       );
     } catch (err) {
@@ -114,8 +119,7 @@ export async function askGemini(
         ms: elapsed(),
       });
       model = GEMINI_FALLBACK_MODEL;
-      // No thinkingConfig: the fallback may be a model that rejects thinkingLevel.
-      res = await attempt(model, contents, baseConfig, remaining);
+      res = await attempt(model, contents, configFor(model), remaining);
     }
 
     const finishReason = res.candidates?.[0]?.finishReason;

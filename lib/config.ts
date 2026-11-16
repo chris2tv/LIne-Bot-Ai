@@ -1,7 +1,8 @@
-export const GEMINI_MODEL = "gemini-3.6-flash";
-// Tried once if GEMINI_MODEL is overloaded (503) or rate-limited (429/500).
-// Google's rolling alias for the current Flash-Lite model — separate capacity pool.
-export const GEMINI_FALLBACK_MODEL = "gemini-flash-lite-latest";
+// Flash-Lite: answered every FAQ test correctly in ~1-2s. gemini-3.6-flash hung >20s
+// and hit 429 quota on this key (2026-11-16 local test), so it is no longer the default.
+export const GEMINI_MODEL = "gemini-flash-lite-latest";
+// Tried once if GEMINI_MODEL is slow, overloaded (503) or rate-limited (429/500).
+export const GEMINI_FALLBACK_MODEL = "gemini-flash-latest";
 export const DEFAULT_REPLY =
   "ขอเช็กข้อมูลก่อนนะครับ เดี๋ยวแอดมินตัวจริงมาตอบเร็วๆ นี้ 🙏";
 export const FAQ_CACHE_MS = 60_000;
