@@ -23,6 +23,14 @@ async function fetchCsv(): Promise<string> {
   if (!csv) {
     throw new Error("sheet_empty");
   }
+  // An /edit or /pubhtml link returns a web page, not the FAQ table.
+  // Feeding that HTML to Gemini makes every answer DEFAULT_REPLY, so fail loudly.
+  const contentType = res.headers.get("content-type") ?? "";
+  if (csv.startsWith("<") || contentType.includes("text/html")) {
+    throw new Error(
+      `sheet_not_csv: SHEET_CSV_URL returned ${contentType || "HTML"} — use File → Share → Publish to web → CSV (link ends in output=csv)`,
+    );
+  }
   return csv;
 }
 
