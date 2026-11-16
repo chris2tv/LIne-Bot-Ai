@@ -1,8 +1,13 @@
 export const GEMINI_MODEL = "gemini-3.6-flash";
+// Tried once if GEMINI_MODEL is overloaded (503) or rate-limited (429/500).
+// Google's rolling alias for the current Flash-Lite model — separate capacity pool.
+export const GEMINI_FALLBACK_MODEL = "gemini-flash-lite-latest";
 export const DEFAULT_REPLY =
   "ขอเช็กข้อมูลก่อนนะครับ เดี๋ยวแอดมินตัวจริงมาตอบเร็วๆ นี้ 🙏";
 export const FAQ_CACHE_MS = 60_000;
-export const GEMINI_TIMEOUT_MS = 7_000;
+export const GEMINI_TIMEOUT_MS = 7_000; // total budget for all Gemini attempts
+export const GEMINI_PRIMARY_TIMEOUT_MS = 4_500; // main model's share; the rest goes to the fallback
+export const GEMINI_MIN_FALLBACK_MS = 1_000; // don't start a fallback with less time than this
 export const SHEET_TIMEOUT_MS = 3_000;
 export const MAX_QUESTION_CHARS = 500;
 
