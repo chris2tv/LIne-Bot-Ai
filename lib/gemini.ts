@@ -125,6 +125,7 @@ export async function askGemini(
     const finishReason = res.candidates?.[0]?.finishReason;
     log("info", "gemini_response", {
       model,
+      faqChars: faqCsv.length, // spot a wrong/empty sheet without logging its content
       finishReason,
       thoughtsTokenCount: res.usageMetadata?.thoughtsTokenCount,
       candidatesTokenCount: res.usageMetadata?.candidatesTokenCount,
