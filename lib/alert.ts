@@ -62,6 +62,17 @@ async function pushToAdminGroup(groupId: string, text: string, ms: number) {
   );
 }
 
+function htmlText(html: string): string {
+  const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
+  const text = html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z#0-9]+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return [title && `title="${title}"`, text].filter(Boolean).join(" · ");
+}
+
 /** Append one row to the "Unanswered" sheet via the Apps Script web app. */
 async function logToSheet(url: string, row: Record<string, string>, ms: number) {
   const res = await fetch(url, {
@@ -77,8 +88,10 @@ async function logToSheet(url: string, row: Record<string, string>, ms: number) 
   if (!res.ok) throw new Error(`sheet_log_http_${res.status}`);
   const body = (await res.text()).trim();
   if (body !== "ok") {
+    // HTML = Google sign-in page (access not "Anyone") or an Apps Script error page.
+    // Its visible text says which; our script never echoes customer data back.
     const hint = body.startsWith("<")
-      ? "got_html: check Deploy → Who has access = Anyone, and use the /exec URL"
+      ? `got_html: ${htmlText(body).slice(0, 160)}`
       : body.slice(0, 80);
     throw new Error(`sheet_log_rejected: ${hint}`);
   }
