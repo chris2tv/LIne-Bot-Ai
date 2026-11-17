@@ -1,8 +1,9 @@
 import { validateSignature, type webhook } from "@line/bot-sdk";
+import { waitUntil } from "@vercel/functions";
 import { alertAdmin, type AlertReason } from "@/lib/alert";
 import {
+  ALERT_DEADLINE_MS,
   DEFAULT_REPLY,
-  REQUEST_BUDGET_MS,
   errorMessage,
   getEnv,
   log,
@@ -13,7 +14,9 @@ import { getFaqCsv } from "@/lib/sheet";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 10;
+// Reply path stays within ~10s (Sheet 3s + Gemini 7s); the extra time is only for
+// admin alerts that run after the 200 via waitUntil.
+export const maxDuration = 20;
 
 /** Last 6 chars of userId only — never log full IDs, message text or tokens. */
 function shortUserId(event: webhook.Event): string | undefined {
@@ -80,10 +83,11 @@ async function handleEvent(event: webhook.Event, deadline: number): Promise<void
     reason = "sheet_unavailable";
   }
 
-  // Customer first, then tell the admins.
+  // Customer first. Admin alerts finish in the background after LINE gets its 200,
+  // so a slow Apps Script never delays the webhook response.
   await reply(replyToken, answer, user);
   if (reason !== "answered" && userId) {
-    await alertAdmin({ userId, question, reason, deadline });
+    waitUntil(alertAdmin({ userId, question, reason, deadline }));
   }
 }
 
@@ -92,7 +96,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const deadline = Date.now() + REQUEST_BUDGET_MS;
+  const deadline = Date.now() + ALERT_DEADLINE_MS;
   // Raw body is required for signature verification — do not req.json() first.
   const body = await req.text();
   const signature = req.headers.get("x-line-signature") ?? "";

@@ -1,6 +1,7 @@
 import {
   ALERT_DEDUPE_MS,
   ALERT_TIMEOUT_MS,
+  SHEET_LOG_TIMEOUT_MS,
   errorMessage,
   log,
   optionalEnv,
@@ -114,20 +115,20 @@ export async function alertAdmin(args: {
   if (!groupId && !sheetUrl) return;
 
   const user = args.userId.slice(-6);
-  const budget = () => Math.min(ALERT_TIMEOUT_MS, args.deadline - Date.now());
-  if (budget() < MIN_ALERT_MS) {
+  const left = () => args.deadline - Date.now();
+  if (left() < MIN_ALERT_MS) {
     log("warn", "alert_skipped_no_time", { user, reason: args.reason });
     return;
   }
 
-  const name = await displayName(args.userId, Math.min(1_000, budget()));
+  const name = await displayName(args.userId, Math.min(1_000, left()));
   const question =
     args.question.length > MAX_ALERT_QUESTION_CHARS
       ? `${args.question.slice(0, MAX_ALERT_QUESTION_CHARS)}…`
       : args.question;
   const time = bangkokTime();
 
-  const tasks: { channel: string; run: (ms: number) => Promise<void> }[] = [];
+  const tasks: { channel: string; maxMs: number; run: (ms: number) => Promise<void> }[] = [];
   if (groupId && shouldPushLine(args.userId)) {
     const text = [
       "⚠️ บอทตอบไม่ได้ ช่วยตามตอบลูกค้าด้วยครับ",
@@ -137,20 +138,29 @@ export async function alertAdmin(args: {
       `เวลา: ${time}`,
       "ตอบได้ที่ LINE OA Manager → แชท",
     ].join("\n");
-    tasks.push({ channel: "line", run: (ms) => pushToAdminGroup(groupId, text, ms) });
+    tasks.push({
+      channel: "line",
+      maxMs: ALERT_TIMEOUT_MS,
+      run: (ms) => pushToAdminGroup(groupId, text, ms),
+    });
   }
   if (sheetUrl) {
     const row = { time, name, user, question, reason: args.reason };
-    tasks.push({ channel: "sheet", run: (ms) => logToSheet(sheetUrl, row, ms) });
+    tasks.push({
+      channel: "sheet",
+      maxMs: SHEET_LOG_TIMEOUT_MS,
+      run: (ms) => logToSheet(sheetUrl, row, ms),
+    });
   }
 
-  const ms = budget();
-  if (ms < MIN_ALERT_MS) {
+  if (left() < MIN_ALERT_MS) {
     log("warn", "alert_skipped_no_time", { user, reason: args.reason });
     return;
   }
   const started = Date.now();
-  const results = await Promise.allSettled(tasks.map((t) => t.run(ms)));
+  const results = await Promise.allSettled(
+    tasks.map((t) => t.run(Math.min(t.maxMs, left()))),
+  );
   results.forEach((r, i) => {
     const channel = tasks[i].channel;
     if (r.status === "fulfilled") {

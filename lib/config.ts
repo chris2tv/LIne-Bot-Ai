@@ -11,9 +11,11 @@ export const GEMINI_PRIMARY_TIMEOUT_MS = 4_500; // main model's share; the rest 
 export const GEMINI_MIN_FALLBACK_MS = 1_000; // don't start a fallback with less time than this
 export const SHEET_TIMEOUT_MS = 3_000;
 export const MAX_QUESTION_CHARS = 500;
-export const ALERT_TIMEOUT_MS = 2_500; // each admin alert (LINE push, Sheet log)
-export const ALERT_DEDUPE_MS = 10 * 60_000; // one alert per customer per 10 min
-export const REQUEST_BUDGET_MS = 9_500; // stay under maxDuration = 10s
+// Admin alerts run after LINE already got its 200 (waitUntil), so they get more time.
+export const ALERT_TIMEOUT_MS = 2_500; // LINE push to the admin group
+export const SHEET_LOG_TIMEOUT_MS = 10_000; // Apps Script cold start can take 5s+
+export const ALERT_DEDUPE_MS = 10 * 60_000; // one LINE alert per customer per 10 min
+export const ALERT_DEADLINE_MS = 19_000; // from request start; stay under maxDuration = 20s
 
 type EnvName =
   | "LINE_CHANNEL_ACCESS_TOKEN"
