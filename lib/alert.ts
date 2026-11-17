@@ -68,15 +68,19 @@ async function logToSheet(url: string, row: Record<string, string>, ms: number) 
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...row, secret: optionalEnv("UNANSWERED_SHEET_SECRET") ?? "" }),
-    // Apps Script runs doPost, then answers 302 → script.googleusercontent.com.
-    // The row is already written by then, so treat the redirect as success.
-    redirect: "manual",
+    // Apps Script always answers 302 → script.googleusercontent.com, even for
+    // "unauthorized" or a login page. Follow it (fetch turns it into a GET) and
+    // check that doPost really said "ok".
+    redirect: "follow",
     signal: AbortSignal.timeout(ms),
   });
-  if (!res.ok && res.status !== 302) throw new Error(`sheet_log_http_${res.status}`);
-  if (res.ok) {
-    const body = (await res.text()).trim();
-    if (body && body !== "ok") throw new Error(`sheet_log_rejected: ${body.slice(0, 80)}`);
+  if (!res.ok) throw new Error(`sheet_log_http_${res.status}`);
+  const body = (await res.text()).trim();
+  if (body !== "ok") {
+    const hint = body.startsWith("<")
+      ? "got_html: check Deploy → Who has access = Anyone, and use the /exec URL"
+      : body.slice(0, 80);
+    throw new Error(`sheet_log_rejected: ${hint}`);
   }
 }
 
