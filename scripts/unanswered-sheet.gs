@@ -1,47 +1,44 @@
-/**
- * Google Apps Script web app: the LINE bot POSTs each question it could not answer,
- * and this appends a row to the "Unanswered" tab.
- *
- * Setup (see README → "แจ้งเตือนแอดมิน"):
- *  1. Use a SEPARATE spreadsheet from the published FAQ sheet (customer questions must not be public).
- *  2. Extensions → Apps Script → paste this file → Save.
- *  3. Project Settings → Script properties → add SECRET = a long random string
- *     (same value as UNANSWERED_SHEET_SECRET in Vercel).
- *  4. Deploy → New deployment → Web app · Execute as: Me · Who has access: Anyone → Deploy.
- *  5. Copy the Web app URL (ends in /exec) into Vercel → UNANSWERED_SHEET_URL, then Redeploy.
- */
-const SHEET_NAME = "Unanswered";
-const HEADER = ["เวลา", "ชื่อลูกค้า", "userId (6 ตัวท้าย)", "คำถาม", "สาเหตุ", "สถานะ"];
+// LINE bot -> "Unanswered" tab. Setup steps: README -> แจ้งเตือนแอดมิน
+// Paste this whole file over everything in Code.gs, Save, then Deploy -> New version.
+// Script property SECRET must equal UNANSWERED_SHEET_SECRET in Vercel.
 
 function doPost(e) {
-  const secret = PropertiesService.getScriptProperties().getProperty("SECRET");
-  let data;
+  var secret = PropertiesService.getScriptProperties().getProperty("SECRET");
+  var data;
   try {
     data = JSON.parse(e.postData.contents);
   } catch (err) {
-    return text("bad_json");
+    return reply_("bad_json");
   }
-  if (!secret || data.secret !== secret) return text("unauthorized");
+  if (!secret || data.secret !== secret) {
+    return reply_("unauthorized");
+  }
 
-  const book = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = book.getSheetByName(SHEET_NAME) || book.insertSheet(SHEET_NAME);
+  var book = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = book.getSheetByName("Unanswered");
+  if (!sheet) {
+    sheet = book.insertSheet("Unanswered");
+  }
   if (sheet.getLastRow() === 0) {
-    sheet.appendRow(HEADER);
+    sheet.appendRow(["เวลา", "ชื่อลูกค้า", "userId (6 ตัวท้าย)", "คำถาม", "สาเหตุ", "สถานะ"]);
     sheet.setFrozenRows(1);
   }
-  // Leading ' keeps Sheets from turning text like "=1+1" or "08:00" into formulas/dates.
-  const safe = (v) => "'" + String(v == null ? "" : v);
   sheet.appendRow([
     new Date(),
-    safe(data.name),
-    safe(data.user),
-    safe(data.question),
-    safe(data.reason),
-    "รอตอบ",
+    asText_(data.name),
+    asText_(data.user),
+    asText_(data.question),
+    asText_(data.reason),
+    "รอตอบ"
   ]);
-  return text("ok");
+  return reply_("ok");
 }
 
-function text(s) {
+// Leading ' keeps Sheets from turning text like "=1+1" into a formula.
+function asText_(v) {
+  return "'" + String(v == null ? "" : v);
+}
+
+function reply_(s) {
   return ContentService.createTextOutput(s).setMimeType(ContentService.MimeType.TEXT);
 }
