@@ -29,6 +29,28 @@ function cleanText(text: string): string {
   return text.replace(/\*\*/g, "").replace(/#/g, "").replace(/`/g, "").trim();
 }
 
+/**
+ * Why the customer got this text. Anything other than "answered" means they got
+ * DEFAULT_REPLY and an admin should follow up.
+ *  - not_in_faq: Gemini found nothing relevant in the FAQ → add a row to the Sheet
+ *  - incomplete: answer cut off / blocked (finishReason ≠ STOP) or empty
+ *  - timeout / error: Gemini was slow, over quota or down → FAQ may already cover it
+ */
+export type AnswerReason =
+  | "answered"
+  | "not_in_faq"
+  | "incomplete"
+  | "timeout"
+  | "error";
+export type Answer = { text: string; reason: AnswerReason };
+
+// The prompt makes Gemini say DEFAULT_REPLY verbatim; match its opening phrase so
+// small variations (spacing, emoji) still count as "not in FAQ".
+const DEFAULT_MARKER = "ขอเช็กข้อมูลก่อน";
+function isDefaultText(text: string): boolean {
+  return text.replace(/\s/g, "").includes(DEFAULT_MARKER);
+}
+
 class TimeoutError extends Error {
   constructor(public readonly model: string) {
     super(`timeout: ${model}`);
@@ -80,12 +102,13 @@ async function attempt(
  * Ask Gemini to answer from the FAQ only.
  * Main model gets GEMINI_PRIMARY_TIMEOUT_MS; if it is slow or overloaded,
  * GEMINI_FALLBACK_MODEL gets the rest of the GEMINI_TIMEOUT_MS budget.
- * Never throws: any failure, timeout, truncation or empty answer returns DEFAULT_REPLY.
+ * Never throws: any failure, timeout, truncation or empty answer returns DEFAULT_REPLY
+ * with a reason other than "answered".
  */
 export async function askGemini(
   faqCsv: string,
   question: string,
-): Promise<string> {
+): Promise<Answer> {
   const started = Date.now();
   const elapsed = () => Date.now() - started;
   const contents = buildPrompt(faqCsv, question);
@@ -133,21 +156,24 @@ export async function askGemini(
     });
 
     // MAX_TOKENS → half sentence; SAFETY etc. → unusable. Both fall back.
-    if (finishReason !== "STOP") return DEFAULT_REPLY;
+    if (finishReason !== "STOP") return { text: DEFAULT_REPLY, reason: "incomplete" };
 
     const text = cleanText(res.text ?? "");
-    return text || DEFAULT_REPLY;
+    if (!text) return { text: DEFAULT_REPLY, reason: "incomplete" };
+    // Keep Gemini's text: it may answer part of the question before the default line.
+    if (isDefaultText(text)) return { text, reason: "not_in_faq" };
+    return { text, reason: "answered" };
   } catch (err) {
     if (err instanceof TimeoutError) {
       log("error", "gemini_timeout", { model, ms: elapsed() });
-    } else {
-      log("error", "gemini_error", {
-        model,
-        status: errorStatus(err),
-        message: errorMessage(err),
-        ms: elapsed(),
-      });
+      return { text: DEFAULT_REPLY, reason: "timeout" };
     }
-    return DEFAULT_REPLY;
+    log("error", "gemini_error", {
+      model,
+      status: errorStatus(err),
+      message: errorMessage(err),
+      ms: elapsed(),
+    });
+    return { text: DEFAULT_REPLY, reason: "error" };
   }
 }

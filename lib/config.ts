@@ -11,12 +11,26 @@ export const GEMINI_PRIMARY_TIMEOUT_MS = 4_500; // main model's share; the rest 
 export const GEMINI_MIN_FALLBACK_MS = 1_000; // don't start a fallback with less time than this
 export const SHEET_TIMEOUT_MS = 3_000;
 export const MAX_QUESTION_CHARS = 500;
+export const ALERT_TIMEOUT_MS = 2_500; // each admin alert (LINE push, Sheet log)
+export const ALERT_DEDUPE_MS = 10 * 60_000; // one alert per customer per 10 min
+export const REQUEST_BUDGET_MS = 9_500; // stay under maxDuration = 10s
 
 type EnvName =
   | "LINE_CHANNEL_ACCESS_TOKEN"
   | "LINE_CHANNEL_SECRET"
   | "GEMINI_API_KEY"
   | "SHEET_CSV_URL";
+
+/** Optional settings: admin alerts are skipped when these are not set. */
+type OptionalEnvName =
+  | "ADMIN_LINE_GROUP_ID"
+  | "UNANSWERED_SHEET_URL"
+  | "UNANSWERED_SHEET_SECRET";
+
+export function optionalEnv(name: OptionalEnvName): string | undefined {
+  const value = process.env[name]?.trim();
+  return value || undefined;
+}
 
 /** Read a required env var. Throws if missing or blank (never logs the value). */
 export function getEnv(name: EnvName): string {

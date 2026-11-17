@@ -1,21 +1,19 @@
-import { messagingApi, validateSignature, type webhook } from "@line/bot-sdk";
-import { DEFAULT_REPLY, errorMessage, getEnv, log } from "@/lib/config";
+import { validateSignature, type webhook } from "@line/bot-sdk";
+import { alertAdmin, type AlertReason } from "@/lib/alert";
+import {
+  DEFAULT_REPLY,
+  REQUEST_BUDGET_MS,
+  errorMessage,
+  getEnv,
+  log,
+} from "@/lib/config";
 import { askGemini } from "@/lib/gemini";
+import { line } from "@/lib/line";
 import { getFaqCsv } from "@/lib/sheet";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 10;
-
-let lineClient: messagingApi.MessagingApiClient | null = null;
-function line(): messagingApi.MessagingApiClient {
-  if (!lineClient) {
-    lineClient = new messagingApi.MessagingApiClient({
-      channelAccessToken: getEnv("LINE_CHANNEL_ACCESS_TOKEN"),
-    });
-  }
-  return lineClient;
-}
 
 /** Last 6 chars of userId only — never log full IDs, message text or tokens. */
 function shortUserId(event: webhook.Event): string | undefined {
@@ -39,24 +37,54 @@ async function reply(replyToken: string, text: string, user?: string) {
   }
 }
 
-async function handleEvent(event: webhook.Event): Promise<void> {
+/**
+ * Bot added to a group (e.g. the admin group): reply with the group ID so it can be
+ * put into ADMIN_LINE_GROUP_ID. A reply is free; it does not use push quota.
+ */
+async function handleJoin(event: webhook.JoinEvent): Promise<void> {
+  const source = event.source;
+  if (source?.type !== "group" || !event.replyToken) return;
+  log("info", "bot_joined_group", { groupId: source.groupId });
+  await reply(
+    event.replyToken,
+    [
+      "สวัสดีครับ 👋 Group ID ของกลุ่มนี้คือ",
+      source.groupId,
+      "",
+      "ถ้าจะใช้กลุ่มนี้รับแจ้งเตือนคำถามที่บอทตอบไม่ได้: นำ ID ไปใส่ใน Vercel → Settings → Environment Variables → ADMIN_LINE_GROUP_ID แล้วกด Redeploy",
+    ].join("\n"),
+  );
+}
+
+async function handleEvent(event: webhook.Event, deadline: number): Promise<void> {
+  if (event.type === "join") return handleJoin(event);
   if (event.type !== "message" || event.message.type !== "text") return;
+  // FAQ answers are for 1:1 chats only, so admins talking in the alert group
+  // (or any other group) don't trigger the bot.
+  if (event.source?.type !== "user") return;
   const replyToken = event.replyToken;
   if (!replyToken) return;
 
+  const userId = event.source.userId;
   const user = shortUserId(event);
   const question = event.message.text;
   log("info", "message_received", { user, length: question.length });
 
   let answer = DEFAULT_REPLY;
+  let reason: AlertReason | "answered";
   try {
     const faq = await getFaqCsv();
-    answer = await askGemini(faq, question);
+    ({ text: answer, reason } = await askGemini(faq, question));
   } catch (err) {
     log("error", "sheet_unavailable", { message: errorMessage(err), user });
+    reason = "sheet_unavailable";
   }
 
+  // Customer first, then tell the admins.
   await reply(replyToken, answer, user);
+  if (reason !== "answered" && userId) {
+    await alertAdmin({ userId, question, reason, deadline });
+  }
 }
 
 export async function GET() {
@@ -64,6 +92,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const deadline = Date.now() + REQUEST_BUDGET_MS;
   // Raw body is required for signature verification — do not req.json() first.
   const body = await req.text();
   const signature = req.headers.get("x-line-signature") ?? "";
@@ -93,7 +122,7 @@ export async function POST(req: Request) {
   if (events.length === 0) return new Response("ok", { status: 200 });
 
   // Await every reply before returning, or Vercel freezes the function mid-send.
-  const results = await Promise.allSettled(events.map(handleEvent));
+  const results = await Promise.allSettled(events.map((e) => handleEvent(e, deadline)));
   for (const r of results) {
     if (r.status === "rejected") {
       log("error", "event_failed", { message: errorMessage(r.reason) });
